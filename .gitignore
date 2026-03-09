@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+runs/
+evaluation/
+out.txt
+out_utf8.txt

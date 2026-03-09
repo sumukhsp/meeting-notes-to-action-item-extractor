@@ -1,0 +1,17 @@
+{
+    "venvPath": ".",
+    "venv": ".venv",
+    "pythonVersion": "3.11",
+    "root": ".",
+    "include": [
+        "src",
+        "app.py"
+    ],
+    "extraPaths": [
+        "."
+    ],
+    "reportMissingImports": "warning",
+    "reportGeneralTypeIssues": "warning",
+    "reportIndexIssue": false,
+    "typeCheckingMode": "basic"
+}
