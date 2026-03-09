@@ -9,6 +9,7 @@ from dateutil import parser as date_parser
 
 from .schemas import ActionItem, Transcript, TranscriptTurn, ToolName
 from .guardrails import TimeoutGuard, validate_tool_call
+from .analysis import generate_analysis
 
 TOOL_TIMEOUT_SECONDS = 10.0
 
@@ -512,6 +513,14 @@ def priority_score(items: list[ActionItem], ctx: ToolContext) -> list[ActionItem
             out.append(it.model_copy(update={"priority_score": score, "priority_label": label, "priority_rule_hits": hits}))
         out.sort(key=lambda x: (-int(x.priority_score), x.title))
         return out
+
+    raise RuntimeError("unreachable")
+
+
+def meeting_summarize(raw_text: str, items: list[ActionItem], ctx: ToolContext) -> dict[str, Any]:
+    validate_tool_call(ToolName.MEETING_SUMMARIZE.value)
+    with TimeoutGuard(TOOL_TIMEOUT_SECONDS, ToolName.MEETING_SUMMARIZE.value):
+        return generate_analysis(raw_text, items, meeting_date=ctx.meeting_date)
 
     raise RuntimeError("unreachable")
 

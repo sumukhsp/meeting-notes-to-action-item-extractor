@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 
-from .agents import BaselineAgent, PriorityAgent, TaskClassifierAgent, TranscriptParserAgent
+from .agents import BaselineAgent, PriorityAgent, TaskClassifierAgent, TranscriptParserAgent, SummaryAgent
 from .logging_utils import RunLogger
 from .schemas import (
     BaselineAgentInput,
@@ -15,6 +15,7 @@ from .schemas import (
     SystemState,
     TaskClassifierInput,
     TranscriptParserInput,
+    SummaryAgentInput,
 )
 from .state_machine import StateMachine
 
@@ -37,6 +38,7 @@ class RunOutput:
     output_json: dict[str, Any]
     agent_messages: list[dict[str, Any]] = field(default_factory=list)
     active_agent: str = ""
+    analysis: dict[str, Any] = field(default_factory=dict)
 
 def to_master_json(items: list[Any]) -> dict[str, Any]:
     tasks = []
@@ -146,7 +148,18 @@ def run_pipeline(raw_text: str, cfg: RunConfig, stop_flag: dict[str, bool] | Non
             "state": SystemState.PRIORITIZING.value,
         })
 
-        t = sm.transition("prioritized", SystemState.COMPLETED)
+        # ── SUMMARIZING ──────────────────────────────────────────────────────
+        t = sm.transition("start_summarize", SystemState.SUMMARIZING)
+        logger.log(LogEventType.STATE_TRANSITION, t.model_dump())
+        summarizer = SummaryAgent()
+        r4 = summarizer.run(SummaryAgentInput(raw_text=raw_text, items=r3.items), ctx, logger)
+        agent_messages.append({
+            "agent": "summarizer",
+            "message": f"Generated summary and identified {len(r4.analysis.get('decisions_made', []))} decisions.",
+            "state": SystemState.SUMMARIZING.value,
+        })
+
+        t = sm.transition("summarized", SystemState.COMPLETED)
         logger.log(LogEventType.STATE_TRANSITION, t.model_dump())
 
         # ── BASELINE COMPARISON ───────────────────────────────────────────
@@ -204,10 +217,13 @@ def run_pipeline(raw_text: str, cfg: RunConfig, stop_flag: dict[str, bool] | Non
             metrics=metrics,
             output_json=output_json,
             agent_messages=agent_messages,
-            active_agent="prioritizer",
+            active_agent="summarizer",
+            analysis=r4.analysis,
         )
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         t = sm.transition("error", SystemState.ERROR)
         logger.log(LogEventType.STATE_TRANSITION, t.model_dump())
         logger.log(LogEventType.ERROR, {"error": str(e)})
@@ -221,4 +237,5 @@ def run_pipeline(raw_text: str, cfg: RunConfig, stop_flag: dict[str, bool] | Non
             output_json={},
             agent_messages=[],
             active_agent="",
+            analysis={},
         )

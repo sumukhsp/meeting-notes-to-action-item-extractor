@@ -5,6 +5,10 @@ import os
 from datetime import date
 
 import streamlit as st
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
+from src.db import save_run, get_runs_for_user
 
 from src.analysis import analysis_to_markdown, generate_analysis
 from src.evaluation import EvalResult, run_evaluation
@@ -20,6 +24,68 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Authentication
+# ─────────────────────────────────────────────────────────────────────────────
+with open('.streamlit/config.yaml') as file:
+    config = yaml.load(file, Loader=SafeLoader)
+
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
+)
+
+def render_auth_screen():
+    # Hide sidebar while logged out 
+    st.markdown("""
+        <style>
+            [data-testid="collapsedControl"] { display: none; }
+            section[data-testid="stSidebar"] { display: none; }
+            .auth-container {
+                max-width: 400px;
+                margin: auto;
+                padding-top: 10vh;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    with tab1:
+        try:
+            authenticator.login()
+        except Exception as e:
+            st.error(e)
+
+    with tab2:
+        try:
+            try:
+                email, username, name = authenticator.register_user(pre_authorization=False)
+            except TypeError: # Handle different arg names between versions
+                email, username, name = authenticator.register_user()
+
+            if email:
+                try:
+                    with open('.streamlit/config.yaml', 'w') as file:
+                        yaml.dump(config, file, default_flow_style=False)
+                    st.success('User registered successfully. You can now login.')
+                except Exception as e:
+                    st.error(e)
+        except Exception as e:
+            st.error(e)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+if not st.session_state.get("authentication_status"):
+    render_auth_screen()
+    if st.session_state.get("authentication_status") is False:
+        st.error("Username/password is incorrect")
+    elif st.session_state.get("authentication_status") is None:
+        st.info("Please enter your username and password, or go to Sign Up to create an account.")
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Session state
@@ -129,7 +195,7 @@ section[data-testid="stSidebar"] label {
 }
 
 /* ── Inputs ── */
-.stTextArea textarea, .stNumberInput input, .stSelectbox > div > div {
+.stTextArea textarea, .stTextInput input, .stNumberInput input, .stSelectbox > div > div {
   background: var(--input) !important;
   color: var(--text1) !important;
   border-color: var(--border) !important;
@@ -346,6 +412,9 @@ div[data-testid="stAlert"] {
   background: var(--card) !important;
   color: var(--text1) !important;
   border-color: var(--border-card) !important;
+}
+div[data-testid="stAlert"] * {
+  color: var(--text1) !important;
 }
 
 /* ── Native table ── */
@@ -572,6 +641,8 @@ def apply_theme(theme: str) -> None:
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
+    authenticator.logout("Logout", "sidebar")
+    st.sidebar.markdown(f'Welcome *{st.session_state["username"]}*')
     theme = st.selectbox("Theme", ["Dark", "Light"],
                          index=0 if st.session_state.theme == "Dark" else 1)
     if theme != st.session_state.theme:
@@ -638,8 +709,10 @@ with st.expander("📝 Transcript Input", expanded=True):
     raw = st.text_area("Paste transcript", value=default_text, height=160,
                        label_visibility="collapsed")
 
+
 if start_btn:
     st.session_state.stop_flag["stop"] = False
+
     with st.spinner("Running pipeline…"):
         try:
             result = run_pipeline(
@@ -649,6 +722,9 @@ if start_btn:
             )
             st.session_state.last_output = result
             st.session_state.last_error = None
+            if result.run_id and result.items:
+                tasks_dicts = [t.model_dump() for t in result.items]
+                save_run(st.session_state["username"], result.run_id, str(date.today()), raw, tasks_dicts, result.analysis)
         except Exception as e:
             st.session_state.last_error = str(e)
 
@@ -657,13 +733,35 @@ if st.session_state.get("last_error"):
 
 out: RunOutput | None = st.session_state.get("last_output")
 
+def render_table(data: list[dict]) -> str:
+    if not data: return ""
+    headers = list(data[0].keys())
+    th = "".join(f"<th>{h}</th>" for h in headers)
+    rows = ""
+    for row in data:
+        tds = "".join(f"<td>{str(row.get(h,'')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</td>" for h in headers)
+        rows += f"<tr>{tds}</tr>"
+    return f'<div style="max-height:400px;overflow-y:auto;border:1px solid var(--border-card);border-radius:8px"><table class="tt" style="margin:0;width:100%"><thead><tr>{th}</tr></thead><tbody>{rows}</tbody></table></div>'
+
 # ── TABS ──────────────────────────────────────────────────────────────────────
-tabs = st.tabs(["📊 Analysis", "Tasks", "Agents", "State", "Messages", "Metrics", "Logs", "JSON"])
+tabs = st.tabs(["🕒 Dashboard", "📊 Analysis", "Tasks", "Agents", "State", "Messages", "Metrics", "Logs", "JSON"])
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+with tabs[0]:
+    st.markdown('<div class="sec-title">Your Meeting History</div>', unsafe_allow_html=True)
+    runs = get_runs_for_user(st.session_state["username"])
+    if not runs:
+        st.info("No past meetings found. Run your first pipeline!")
+    else:
+        for r in runs:
+            with st.expander(f"Meeting on {r['meeting_date']} - {len(r['tasks'])} tasks"):
+                st.write(r["analysis"].get("meeting_summary", "No summary available."))
+                st.code(json.dumps({"Action Items": r["tasks"]}, indent=2), language="json")
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
-with tabs[0]:
-    if out and out.items:
-        analysis = generate_analysis(raw, out.items)
+with tabs[1]:
+    if out and out.analysis:
+        analysis = out.analysis
 
         # Meeting Summary
         st.markdown(f'''
@@ -743,7 +841,7 @@ with tabs[0]:
         st.markdown('<div class="es"><div class="ei">📊</div><div class="em">Click <b>▶ Start</b> to generate the meeting analysis</div></div>', unsafe_allow_html=True)
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
-with tabs[1]:
+with tabs[2]:
     if out and out.items:
         st.markdown('<div class="sec-title">Extracted Tasks</div>', unsafe_allow_html=True)
         def _pb(p):
@@ -771,12 +869,13 @@ with tabs[1]:
         st.markdown('<div class="es"><div class="ei">📋</div><div class="em">Click <b>▶ Start</b> to extract action items</div></div>', unsafe_allow_html=True)
 
 # ── Agents ────────────────────────────────────────────────────────────────────
-with tabs[2]:
+with tabs[3]:
     st.markdown('<div class="sec-title">Agent Panel</div>', unsafe_allow_html=True)
     agents_info = [
         {"name":"parser","label":"Parser Agent","desc":"Reads raw transcript, identifies speaker turns and candidate action sentences with confidence scoring.","tools":["transcript_parse","extract_action_items"]},
         {"name":"classifier","label":"Classifier Agent","desc":"Assigns owner, deadline, and category to each item. Runs deduplication to remove near-duplicate tasks.","tools":["task_classify","deduplicate"]},
         {"name":"prioritizer","label":"Prioritizer Agent","desc":"Scores each task 1–10 on urgency/impact signals. Labels P1 (critical), P2 (high), P3 (normal).","tools":["priority_score"]},
+        {"name":"summarizer","label":"Summary Agent","desc":"Generates an executive summary, key discussion points, and identifies decisions and risks.","tools":["meeting_summarize"]},
         {"name":"baseline","label":"Baseline Agent","desc":"Single-pass reference (no role separation, no dedup) used for metric comparison.","tools":["transcript_parse","extract_action_items","task_classify","priority_score"]},
     ]
     active = out.active_agent if out else ""
@@ -799,7 +898,7 @@ with tabs[2]:
 </div>""", unsafe_allow_html=True)
 
 # ── State ─────────────────────────────────────────────────────────────────────
-with tabs[3]:
+with tabs[4]:
     st.markdown('<div class="sec-title">State Machine</div>', unsafe_allow_html=True)
     st.markdown("""
 <div class="sf">
@@ -823,17 +922,17 @@ with tabs[3]:
 </div>""", unsafe_allow_html=True)
     if out:
         st.markdown(f'Current: <span class="sb">{out.state_machine.state.value}</span>', unsafe_allow_html=True)
-        st.markdown('<div class="sec-title">Transition History</div>', unsafe_allow_html=True)
-        st.dataframe([
+        data = [
             {"timestamp": tr.timestamp.strftime("%H:%M:%S.%f")[:-3],
              "from": tr.previous_state.value, "event": tr.event, "to": tr.next_state.value}
             for tr in out.state_machine.transitions
-        ], use_container_width=True, hide_index=True)
+        ]
+        st.markdown(render_table(data), unsafe_allow_html=True)
     else:
         st.markdown('<div class="es"><div class="ei">🔄</div><div class="em">Run pipeline to see transitions</div></div>', unsafe_allow_html=True)
 
 # ── Messages ──────────────────────────────────────────────────────────────────
-with tabs[4]:
+with tabs[5]:
     st.markdown('<div class="sec-title">Interaction Log</div>', unsafe_allow_html=True)
     if out:
         jp = os.path.join("runs", f"{out.run_id}.jsonl")
@@ -876,7 +975,7 @@ with tabs[4]:
         st.markdown('<div class="es"><div class="ei">💬</div><div class="em">Run pipeline to see log</div></div>', unsafe_allow_html=True)
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
-with tabs[5]:
+with tabs[6]:
     st.markdown('<div class="sec-title">Metrics Dashboard</div>', unsafe_allow_html=True)
     if out and out.metrics:
         m = out.metrics
@@ -908,18 +1007,19 @@ with tabs[5]:
         if "last_eval" in st.session_state:
             ev = st.session_state.last_eval
             st.markdown('<div class="sec-title">Per-Scenario Results</div>', unsafe_allow_html=True)
-            st.dataframe([
+            data = [
                 {"scenario": r.scenario_key, "items": r.items_count, "baseline": r.baseline_count,
                  "owner%": f"{r.owner_rate:.0%}", "deadline%": f"{r.deadline_rate:.0%}",
                  "P1%": f"{r.p1_rate:.0%}", "conf": f"{r.mean_confidence:.2f}",
                  "jaccard": f"{r.jaccard_vs_baseline:.2f}"}
                 for r in ev.scenario_results
-            ], use_container_width=True, hide_index=True)
+            ]
+            st.markdown(render_table(data), unsafe_allow_html=True)
     else:
         st.markdown('<div class="es"><div class="ei">📊</div><div class="em">Run pipeline to see metrics</div></div>', unsafe_allow_html=True)
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
-with tabs[6]:
+with tabs[7]:
     st.markdown('<div class="sec-title">Run Logs</div>', unsafe_allow_html=True)
     if out:
         st.markdown(f'**Run ID:** `{out.run_id}`')
@@ -928,7 +1028,8 @@ with tabs[6]:
             with open(jp, "r", encoding="utf-8") as f:
                 all_lines = f.readlines()
                 evts = [json.loads(line) for line in all_lines[-300:] if line.strip()]  # type: ignore[index]
-            st.dataframe(evts, use_container_width=True, hide_index=True)
+            log_data = [{"ts": e.get("ts", ""), "type": e.get("type", ""), "payload": json.dumps(e.get("payload", {}))} for e in evts]
+            st.markdown(render_table(log_data), unsafe_allow_html=True)
         st.markdown('<div class="sec-title" style="margin-top:1.5rem">Replay Past Run</div>', unsafe_allow_html=True)
         rd = "runs"
         run_files = [fname[:-6] for fname in os.listdir(rd) if fname.endswith(".jsonl")] if os.path.isdir(rd) else []
@@ -937,15 +1038,17 @@ with tabs[6]:
             rid = st.selectbox("Select Run ID", past)
             if st.button("Load"):
                 with open(os.path.join(rd, f"{rid}.jsonl"), "r", encoding="utf-8") as f:
-                    st.dataframe([json.loads(l) for l in f if l.strip()], use_container_width=True, hide_index=True)
+                    evts = [json.loads(l) for l in f if l.strip()]
+                    log_data = [{"ts": e.get("ts", ""), "type": e.get("type", ""), "payload": json.dumps(e.get("payload", {}))} for e in evts]
+                    st.markdown(render_table(log_data), unsafe_allow_html=True)
     else:
         st.markdown('<div class="es"><div class="ei">📄</div><div class="em">Run pipeline to see logs</div></div>', unsafe_allow_html=True)
 
 # ── JSON ──────────────────────────────────────────────────────────────────────
-with tabs[7]:
+with tabs[8]:
     st.markdown('<div class="sec-title">Structured Output</div>', unsafe_allow_html=True)
     if out:
-        st.json(out.output_json)
+        st.code(json.dumps(out.output_json, indent=2), language="json")
         st.download_button("⬇ Download JSON",
             data=json.dumps(out.output_json, ensure_ascii=False, indent=2),
             file_name=f"{out.run_id}.tasks.json", mime="application/json",

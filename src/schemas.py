@@ -21,6 +21,7 @@ class SystemState(str, Enum):
     TASKS_EXTRACTED = "TASKS_EXTRACTED"
     CLASSIFYING = "CLASSIFYING"
     PRIORITIZING = "PRIORITIZING"
+    SUMMARIZING = "SUMMARIZING"
     COMPLETED = "COMPLETED"
     DONE = "DONE"
     ERROR = "ERROR"
@@ -33,6 +34,7 @@ class ToolName(str, Enum):
     TASK_CLASSIFY = "task_classify"
     PRIORITY_SCORE = "priority_score"
     DEDUPLICATE = "deduplicate"
+    MEETING_SUMMARIZE = "meeting_summarize"
 
 
 class TranscriptTurn(BaseModel):
@@ -139,6 +141,15 @@ class BaselineAgentInput(BaseModel):
 
 class BaselineAgentOutput(BaseModel):
     items: list[ActionItem]
+
+
+class SummaryAgentInput(BaseModel):
+    raw_text: str
+    items: list[ActionItem]
+
+
+class SummaryAgentOutput(BaseModel):
+    analysis: dict[str, Any]
 
 
 # Evaluation models

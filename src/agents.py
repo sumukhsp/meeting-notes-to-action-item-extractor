@@ -11,19 +11,25 @@ from .schemas import (
     BaselineAgentOutput,
     PriorityAgentInput,
     PriorityAgentOutput,
+    PriorityAgentOutput,
     TaskClassifierInput,
     TaskClassifierOutput,
     TranscriptParserInput,
     TranscriptParserOutput,
+    SummaryAgentInput,
+    SummaryAgentOutput,
     ToolName,
 )
 from .tools import (
     ToolContext,
     deduplicate,
     extract_action_items,
+    deduplicate,
+    extract_action_items,
     priority_score,
     task_classify,
     transcript_parse,
+    meeting_summarize,
 )
 
 
@@ -163,4 +169,26 @@ class BaselineAgent:
         output = BaselineAgentOutput(items=items)
         validated: BaselineAgentOutput = _validate_with_retry(BaselineAgentOutput, output.model_dump())  # type: ignore[assignment]
         logger.log_agent_result("BaselineAgent", {"items_count": len(validated.items)})
+        return validated
+
+
+@dataclass
+class SummaryAgent:
+    def run(self, input_model: SummaryAgentInput, ctx: ToolContext, logger: RunLogger) -> SummaryAgentOutput:
+        logger.log_agent_invoke("SummaryAgent", {"items_count": len(input_model.items)})
+
+        logger.log_tool_call(ToolName.MEETING_SUMMARIZE.value, {"items_count": len(input_model.items)})
+        analysis = meeting_summarize(input_model.raw_text, input_model.items, ctx)
+
+        logger.log_tool_result(
+            ToolName.MEETING_SUMMARIZE.value,
+            {
+                "summary_len": len(analysis.get("meeting_summary", "")),
+                "decisions_count": len(analysis.get("decisions_made", [])),
+            },
+        )
+
+        output = SummaryAgentOutput(analysis=analysis)
+        validated: SummaryAgentOutput = _validate_with_retry(SummaryAgentOutput, output.model_dump())  # type: ignore[assignment]
+        logger.log_agent_result("SummaryAgent", {"analysis_keys": list(validated.analysis.keys())})
         return validated

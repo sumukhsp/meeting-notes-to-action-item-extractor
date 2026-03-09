@@ -1,0 +1,20 @@
+cookie:
+  expiry_days: 30
+  key: secret_signature_key
+  name: meeting_notes_auth
+credentials:
+  usernames:
+    admin:
+      email: admin@example.com
+      name: Admin User
+      password: $2b$12$VWPh2sY8JH1d7/8K0bUgS.AT9ZN5lzJFxenq74jE8Oy4qK4dif72y
+    cubzer123:
+      email: sumukh.kgf@gmail.com
+      first_name: sumukh
+      last_name: sp
+      logged_in: false
+      password: $2b$12$MK77zEN1gD2t7TalyEv6AuIeulAn/e8DzAg1w59MBgEm76TnvnKIy
+      password_hint: numbers
+      roles: null
+preauthorized:
+  emails: []

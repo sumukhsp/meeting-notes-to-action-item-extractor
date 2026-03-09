@@ -19,6 +19,7 @@ ALLOWED_TOOLS: set[str] = {
     ToolName.PRIORITY_SCORE.value,
     ToolName.EXTRACT_ACTION_ITEMS.value,
     ToolName.DEDUPLICATE.value,
+    ToolName.MEETING_SUMMARIZE.value,
 }
 
 
