@@ -1,6 +1,6 @@
 cookie:
   expiry_days: 30
-  key: secret_signature_key
+  key: secret_signature_key_that_is_at_least_32_bytes_long
   name: meeting_notes_auth
 credentials:
   usernames:
@@ -8,6 +8,14 @@ credentials:
       email: admin@example.com
       name: Admin User
       password: $2b$12$VWPh2sY8JH1d7/8K0bUgS.AT9ZN5lzJFxenq74jE8Oy4qK4dif72y
+    cuber1234:
+      email: sumukh.1si22ad049@gmail.com
+      first_name: sumukh
+      last_name: sp
+      logged_in: false
+      password: $2b$12$7o/Gc1fvFnBKTLhM8xpgreATUyEsa.O8pHsUxI1iukHdatW0ibw9S
+      password_hint: number
+      roles: null
     cubzer123:
       email: sumukh.kgf@gmail.com
       first_name: sumukh
